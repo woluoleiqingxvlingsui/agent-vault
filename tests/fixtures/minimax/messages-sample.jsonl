@@ -1,0 +1,3 @@
+{"message_id":"msg-user-v1-0001","turn_id":"96164aad-69ee-4929-adb1-3655375af42f","message":{"role":"user","content":[{"type":"text","text":"帮我看看这个示例项目的额度管理"}],"timestamp":1793534555695}}
+{"message_id":"msg-assistant-v1-0001","turn_id":"96164aad-69ee-4929-adb1-3655375af42f","message":{"role":"assistant","content":[{"type":"thinking","thinking":"用户想知道额度管理，忽略这段思考。"},{"type":"text","text":"额度管理模块在 models 页面，可以按平台查看剩余额度。"}],"timestamp":1793534560123,"model":"minimax-m3","provider":"minimax"}}
+{"message_id":"msg-assistant-v1-0002","turn_id":"96164aad-69ee-4929-adb1-3655375af42f","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_1","name":"read_file","arguments":{"path":"a.ts"}}],"timestamp":1793534561000}}

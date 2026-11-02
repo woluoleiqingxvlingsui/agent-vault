@@ -1,0 +1,29 @@
+# 依赖与构建产物
+node_modules/
+out/
+release/
+release-*/
+dist/
+*.tsbuildinfo
+
+# 本地运行产物（不要提交真实界面截图，避免泄露本机路径与真实对话内容）
+screenshot-request.txt
+*-verify*.png
+ui-verify*.png
+pack-verify*.png
+verify-screenshot*.png
+
+# 本地环境与密钥
+.env
+.env.*
+*.local
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+Thumbs.db
+.DS_Store
+
+# 编辑器
+.vscode/
+.idea/

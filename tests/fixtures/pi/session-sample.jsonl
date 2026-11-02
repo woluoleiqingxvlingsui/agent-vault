@@ -1,0 +1,6 @@
+{"type":"session","version":3,"id":"019fb0cb-8ce6-7fd8-9367-119bb5ecf179","timestamp":"2026-07-30T02:12:37.734Z","cwd":"C:\\Users\\tester\\code\\demo-app"}
+{"type":"model_change","id":"e709f8de","parentId":null,"timestamp":"2026-07-30T02:12:37.763Z","provider":"anthropic","modelId":"claude-opus-4-8"}
+{"type":"thinking_level_change","id":"8af70468","parentId":"e709f8de","timestamp":"2026-07-30T02:12:37.763Z","thinkingLevel":"medium"}
+{"type":"message","id":"2ebf8450","parentId":"8af70468","timestamp":"2026-07-30T02:12:40.363Z","message":{"role":"user","content":[{"type":"text","text":"写一个 Python 快速排序"}],"timestamp":1785377560361}}
+{"type":"message","id":"9c2b381c","parentId":"2ebf8450","timestamp":"2026-07-30T02:12:41.109Z","message":{"role":"assistant","content":[{"type":"text","text":"下面是一个原地分区实现的快速排序：\n\ndef quicksort(arr):\n    ..."}],"timestamp":1785377561109}}
+{"type":"message","id":"aa11bb22","parentId":"9c2b381c","timestamp":"2026-07-30T02:13:02.000Z","message":{"role":"user","content":[{"type":"text","text":"再加上原地去重"}],"timestamp":1785377582000}}

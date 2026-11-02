@@ -1,0 +1,12 @@
+# 统一换行，避免 Windows / Linux 检出差异
+* text=auto eol=lf
+
+# 二进制资源
+*.png binary
+*.ico binary
+*.icns binary
+*.db binary
+*.exe binary
+*.dll binary
+*.node binary
+*.zst binary

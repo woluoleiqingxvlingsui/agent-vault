@@ -1,0 +1,29 @@
+appId: com.woluoleiqingxvlingsui.agentvault
+productName: Agent Vault
+copyright: Copyright © 2026 woluoleiqingxvlingsui
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+asar: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Agent Vault
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+npmRebuild: false
+publish: null

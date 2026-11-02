@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "sessionId": "mvs_b49483054c7343ffb3f9830ad93d188c",
+  "createdAtMs": 1793534555695,
+  "updatedAtMs": 1793534561000,
+  "source": "local-runtime",
+  "layout": "v2-final-dated-session",
+  "paths": {
+    "sessionDir": "C:\\Users\\tester\\.minimax\\v2\\sessions\\2026\\11\\01\\12-02-35-695-session_bXZzX2ZjOTk5MmYxOWQ3MzQ0Y2E5NGQ1OGRhZGFhZmY2NWY2",
+    "messages": "C:\\Users\\tester\\.minimax\\v2\\sessions\\2026\\11\\01\\12-02-35-695-session_bXZzX2ZjOTk5MmYxOWQ3MzQ0Y2E5NGQ1OGRhZGFhZmY2NWY2\\messages.jsonl"
+  }
+}
