@@ -12,9 +12,9 @@ export interface TestDb {
   cleanup: () => void
 }
 
-export function createTestDb(): TestDb {
+export function createTestDb(options: { memory?: boolean } = {}): TestDb {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'qlv-test-'))
-  const db = new Db(path.join(dir, 'test.db'))
+  const db = new Db(options.memory ? ':memory:' : path.join(dir, 'test.db'))
   runMigrations(db)
   const repo = new Repo(db)
   return {

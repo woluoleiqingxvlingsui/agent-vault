@@ -1,6 +1,6 @@
 {
   "name": "project-launcher-agent-vault",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Windows 桌面项目启动器 + 多 Agent 对话记录管理器（本地优先）",
   "main": "./out/main/index.js",

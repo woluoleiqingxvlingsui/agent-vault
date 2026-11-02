@@ -190,7 +190,9 @@ describe('回归：导入恢复手动项目归属', () => {
 
 describe('回归：导出不会被单页上限截断', () => {
   it('超过 500 条会话时导出全部内容', () => {
-    const source = createTestDb()
+    // 此处验证分页完整性；使用内存 SQLite，避免 520 次样本提交受 runner 磁盘延迟影响。
+    // 持久化、WAL 和备份恢复用例仍使用真实临时磁盘库。
+    const source = createTestDb({ memory: true })
     try {
       const total = 520
       for (let i = 0; i < total; i += 1) {

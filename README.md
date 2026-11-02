@@ -2,15 +2,15 @@
 
 Windows 本地桌面工具：集中启动应用、CLI 与项目目录，按 Agent 和项目查看已有对话记录。
 
-**当前版本为 0.1.0 测试版，仅支持 Windows 10 / 11 x64。** 不需要账号，也不需要配置 API Key。
+**当前版本为 0.1.1 测试版，仅支持 Windows 10 / 11 x64。** 不需要账号，也不需要配置 API Key。
 
 ![启动页示例](docs/screenshots/launch.png)
 
 ## 普通用户：下载与首次使用
 
 1. 前往 [Releases](https://github.com/woluoleiqingxvlingsui/agent-vault/releases)；如尚无 Release，可按后面的步骤从源码构建。
-2. 推荐下载 `Agent Vault-0.1.0-x64.exe` 安装包，运行后可选择安装目录并创建快捷方式。
-3. 不想安装可选 `Agent Vault-0.1.0-portable.exe`。**便携版表示免安装，数据仍保存在 AppData，不随 exe 移动。**
+2. 推荐下载 `Agent Vault-0.1.1-x64.exe` 安装包，运行后可选择安装目录并创建快捷方式。
+3. 不想安装可选 `Agent Vault-0.1.1-portable.exe`。**便携版表示免安装，数据仍保存在 AppData，不随 exe 移动。**
 4. 使用这两种 exe 均无需额外安装 Node.js、npm 或编译工具。要启动某个外部 Agent，仍需自行安装该 Agent 及其所需运行环境。
 5. 首次启动先选择要汇总的来源，再点击“保存范围并开始扫描”；也可“暂不扫描”。确认前不会读取会话正文。旧版本升级后首次使用同样需要确认。
 6. 到“项目”登记根目录，已有会话按路径自动归组；到“设置 → 编辑启动配置与能力原因”修改程序、参数及工作目录。
