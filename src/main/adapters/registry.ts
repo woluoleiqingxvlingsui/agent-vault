@@ -29,7 +29,7 @@ export function resolveFromPath(name: string, env: PathEnv = pathEnv()): string 
   const pathDirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)
   const exts = (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
   for (const dir of pathDirs) {
-    for (const ext of exts) {
+    for (const ext of path.extname(name) ? [''] : exts) {
       const candidate = path.join(dir, name + ext)
       if (existsSync(candidate)) return candidate
     }

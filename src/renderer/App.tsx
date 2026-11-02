@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import ScanSettings from './components/ScanSettings'
+import type { ScanPreferences } from '../shared/types'
 import { api } from './api'
 import type { AgentDescriptor, Launcher, Project, ProjectStats } from '../shared/types'
 import { useTheme } from './theme'
@@ -31,6 +33,8 @@ export default function App(): React.JSX.Element {
   const [projects, setProjects] = useState<Project[]>([])
   const [agents, setAgents] = useState<AgentDescriptor[]>([])
   const [stats, setStats] = useState<ProjectStats>({ byProject: {}, ungrouped: 0 })
+  const [demo, setDemo] = useState(false)
+  const [preferences, setPreferences] = useState<ScanPreferences | null>(null)
   const [token, setToken] = useState(0)
   const { theme, toggle } = useTheme()
 
@@ -47,16 +51,20 @@ export default function App(): React.JSX.Element {
   }
 
   const reload = useCallback(async () => {
-    const [l, p, a, s] = await Promise.all([
+    const [l, p, a, s, prefs, info] = await Promise.all([
       api.launchers.list(),
       api.projects.list(),
       api.agents.list(),
-      api.projects.stats()
+      api.projects.stats(),
+      api.scan.preferences(),
+      api.app.info()
     ])
     setLaunchers(l)
     setProjects(p)
     setAgents(a)
     setStats(s)
+    setPreferences(prefs)
+    setDemo(info.demo)
   }, [])
 
   useEffect(() => {
@@ -130,6 +138,11 @@ export default function App(): React.JSX.Element {
       </aside>
 
       <main className="content">
+        {demo && <div className="demo-banner"><span>演示模式 · 虚构会话，独立数据目录</span>
+          <button className="btn ghost sm" onClick={() => void api.app.demo()}>退出演示并返回个人数据</button></div>}
+        {preferences && !preferences.initialized && page !== 'settings' && (
+          <ScanSettings agents={agents} onChanged={reload} firstRun />
+        )}
         {page === 'launch' && (
           <LaunchPage launchers={launchers} projects={projects} onChanged={reload} />
         )}

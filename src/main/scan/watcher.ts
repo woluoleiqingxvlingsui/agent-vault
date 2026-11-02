@@ -1,4 +1,4 @@
-import { watch, type FSWatcher } from 'node:fs'
+import { watch, statSync, type FSWatcher } from 'node:fs'
 import path from 'node:path'
 import type { AgentAdapter } from '../adapters/types'
 import type { Scanner } from './scanner'
@@ -24,7 +24,8 @@ export class SourceWatcher {
   private debounceTimers = new Map<string, NodeJS.Timeout>()
   private running = false
   /** 已监听的目录，避免同一个目录被重复监听 */
-  private watchedDirs = new Set<string>()
+  private watchedDirs = new Map<string, Set<string>>()
+  private polling = false
 
   constructor(
     private readonly scanner: Scanner,
@@ -35,7 +36,7 @@ export class SourceWatcher {
   start(): void {
     if (this.running) return
     this.running = true
-    for (const adapter of this.adapters) {
+    for (const adapter of this.scanner.automaticAgents()) {
       if (!adapter.supportsWatch) continue
       this.watchAdapter(adapter)
     }
@@ -63,21 +64,28 @@ export class SourceWatcher {
     this.debounceTimers.clear()
   }
 
+  refresh(): void { this.stop(); this.start() }
+
   /** 监听某个 Agent 的来源目录（文件来源监听其父目录） */
   private watchAdapter(adapter: AgentAdapter): void {
     const source = this.scanner.resolveSourceRoot(adapter)
     if (!source) return
-    const target = path.extname(source) ? path.dirname(source) : source
-    if (this.watchedDirs.has(target)) return
+    let fileSource = adapter.recordSupport === 'sqlite'
+    try { fileSource = statSync(source).isFile() } catch { /* 由轮询发现后续创建的来源 */ }
+    const target = fileSource ? path.dirname(source) : source
+    const key = path.resolve(target).toLowerCase()
+    const shared = this.watchedDirs.get(key)
+    if (shared) { shared.add(adapter.id); return }
+    const ids = new Set([adapter.id])
     try {
-      const watcher = watch(target, { recursive: path.extname(source) ? false : true }, () => {
-        this.scheduleScan(adapter.id)
+      const watcher = watch(target, { recursive: !fileSource }, () => {
+        for (const id of ids) this.scheduleScan(id)
       })
       watcher.on('error', () => {
         /* 监听失败时由轮询兜底 */
       })
       this.watchers.push(watcher)
-      this.watchedDirs.add(target)
+      this.watchedDirs.set(key, ids)
     } catch {
       /* 目录不存在或不支持监听时由轮询兜底 */
     }
@@ -90,7 +98,7 @@ export class SourceWatcher {
     const timer = setTimeout(() => {
       this.debounceTimers.delete(agentId)
       void this.scanner
-        .scanAgent(agentId)
+        .scanAgent(agentId, { automatic: true })
         .then(() => this.options.onScan?.(agentId))
         .catch(() => undefined)
     }, delay)
@@ -99,13 +107,19 @@ export class SourceWatcher {
   }
 
   private async poll(): Promise<void> {
-    for (const adapter of this.adapters) {
-      if (!adapter.supportsWatch) continue
-      try {
-        await this.scanner.scanAgent(adapter.id)
-      } catch {
-        /* 单个 Agent 失败不影响其它 */
+    if (this.polling || !this.running) return
+    this.polling = true
+    try {
+      for (const adapter of this.scanner.automaticAgents()) {
+        if (!adapter.supportsWatch) continue
+        try {
+          if (!this.running || !this.scanner.automaticAgents().some((a) => a.id === adapter.id)) break
+          await this.scanner.scanAgent(adapter.id, { automatic: true })
+          this.options.onScan?.(adapter.id)
+        } catch {
+          /* 单个 Agent 失败不影响其它 */
+        }
       }
-    }
+    } finally { this.polling = false }
   }
 }

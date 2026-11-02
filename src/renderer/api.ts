@@ -1,7 +1,8 @@
 import type {
   AgentDescriptor,
+  ImportResponse,
+  ScanPreferences,
   AppInfo,
-  ImportResult,
   LaunchResult,
   Launcher,
   Project,
@@ -12,7 +13,12 @@ import type {
 } from '../shared/types'
 
 export interface VaultApi {
+  scan: {
+    preferences(): Promise<ScanPreferences>
+    configure(value: ScanPreferences): Promise<ScanPreferences>
+  }
   app: {
+    demo(): Promise<boolean>
     info(): Promise<AppInfo>
     openPath(target: string): Promise<boolean>
     revealDataDir(): Promise<string>
@@ -52,11 +58,12 @@ export interface VaultApi {
     counts(): Promise<{ total: number; byAgent: Record<string, number> }>
   }
   io: {
+    restore(): Promise<{ canceled: boolean }>
     export(format: 'json' | 'markdown', agentId?: string | null): Promise<any>
     import(
       filePath: string,
       format: 'json' | 'markdown'
-    ): Promise<ImportResult & { ok: boolean; error?: string }>
+    ): Promise<ImportResponse>
     backup(): Promise<{ canceled: boolean; filePath?: string }>
   }
   onDataChanged(callback: () => void): () => void

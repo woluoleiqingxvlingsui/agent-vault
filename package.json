@@ -15,7 +15,7 @@
   },
   "homepage": "https://github.com/woluoleiqingxvlingsui/agent-vault#readme",
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.16"
   },
   "scripts": {
     "dev": "electron-vite dev",

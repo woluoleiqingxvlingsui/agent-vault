@@ -105,7 +105,7 @@ export class Repo {
       protocol: input.protocol ?? existing?.protocol ?? 'exec',
       args: input.args ?? existing?.args ?? [],
       cwd: input.cwd ?? existing?.cwd ?? '',
-      projectId: input.projectId ?? existing?.projectId ?? null,
+      projectId: input.projectId === undefined ? existing?.projectId ?? null : input.projectId,
       icon: input.icon ?? existing?.icon ?? '',
       enabled: input.enabled ?? existing?.enabled ?? true,
       lastLaunchedAt: existing?.lastLaunchedAt ?? null,
@@ -178,7 +178,7 @@ export class Repo {
       id,
       name: input.name,
       rootPath: input.rootPath,
-      launcherId: input.launcherId ?? existing?.launcherId ?? null,
+      launcherId: input.launcherId === undefined ? existing?.launcherId ?? null : input.launcherId,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     }
@@ -256,7 +256,10 @@ export class Repo {
     }
 
     if (existing.content_hash === input.contentHash) {
-      this.db.run('UPDATE sessions SET source_mtime = ? WHERE id = ?', [input.sourceMtime, existing.id])
+      this.db.run(`UPDATE sessions SET source_mtime = ?, source_path = ?, source_cwd = ?,
+        created_at = ?, updated_at = ?, raw_meta = ?, auto_project_id = ? WHERE id = ?`,
+        [input.sourceMtime, input.sourcePath, input.sourceCwd, input.createdAt, input.updatedAt,
+          JSON.stringify(input.rawMeta), input.autoProjectId, existing.id])
       return { status: 'skipped', id: existing.id }
     }
 

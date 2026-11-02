@@ -15,6 +15,10 @@ const PROBE_SAMPLE_LIMIT = 20
 
 /** 评估启动能力：目标是否存在 */
 export function evaluateLaunch(adapter: AgentAdapter): { status: CapabilityStatus; reason: string } {
+  if (adapter.id === 'minimax-cli' && !adapter.launch.args.length &&
+      /(^|[\\/])node(?:\.exe)?$/i.test(adapter.launch.command)) {
+    return { status: 'needs_config', reason: '仅找到 Node，尚未配置 MiniMax/pi 的 CLI 脚本参数' }
+  }
   if (adapter.launch.protocol === 'appsfolder') {
     const ok = adapter.launch.command.includes('!')
     return ok

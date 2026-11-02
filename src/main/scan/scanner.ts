@@ -4,15 +4,39 @@ import { computeContentHash, computeFingerprint } from '../domain/dedup'
 import { resolveAutoProjectId } from '../domain/grouping'
 import { AGENT_SOURCE_KEY } from '../agents/keys'
 import type { ScanResult } from '../../shared/types'
+import { getScanPreferences } from '../agents/preferences'
 
 export interface ScanOptions {
   /** 覆盖该 Agent 的来源路径 */
   sourceRoot?: string
   /** 忽略增量跳过，强制重新解析 */
   force?: boolean
+  /** 队列执行前再次检查范围，暂停/取消来源后不开始新的自动扫描 */
+  automatic?: boolean
 }
 
 export class Scanner {
+  private queue: Promise<unknown> = Promise.resolve()
+  private suspended = false
+
+  async suspend(): Promise<void> {
+    this.suspended = true
+    await this.queue
+  }
+
+  resume(): void { this.suspended = false }
+
+  automaticAgents(): AgentAdapter[] {
+    const prefs = getScanPreferences(this.repo)
+    return prefs.initialized && !prefs.paused
+      ? this.adapters.filter((a) => prefs.agentIds.includes(a.id)) : []
+  }
+
+  async scanSelected(): Promise<ScanResult[]> {
+    const results: ScanResult[] = []
+    for (const adapter of this.automaticAgents()) results.push(await this.scanAgent(adapter.id, { automatic: true }))
+    return results
+  }
   constructor(
     private readonly repo: Repo,
     private readonly adapters: AgentAdapter[]
@@ -35,7 +59,20 @@ export class Scanner {
     return (override ?? '').trim() || this.configuredSource(adapter.id) || adapter.defaultSourcePath
   }
 
-  async scanAgent(agentId: string, options: ScanOptions = {}): Promise<ScanResult> {
+  scanAgent(agentId: string, options: ScanOptions = {}): Promise<ScanResult> {
+    const task = this.queue.then(() => {
+      if (this.suspended) throw new Error('扫描已暂停，正在准备恢复或切换模式')
+      if (options.automatic && !this.automaticAgents().some((a) => a.id === agentId)) {
+        return { agentId, discovered: 0, imported: 0, updated: 0, skipped: 0,
+          failed: 0, error: null, durationMs: 0 }
+      }
+      return this.performScan(agentId, options)
+    })
+    this.queue = task.catch(() => undefined)
+    return task
+  }
+
+  private async performScan(agentId: string, options: ScanOptions): Promise<ScanResult> {
     const started = Date.now()
     const adapter = this.getAdapter(agentId)
     if (!adapter) {
@@ -109,6 +146,7 @@ export class Scanner {
         errors.push(`${ref.path}: ${(err as Error).message}`)
         continue
       }
+      let persistFailed = false
       for (const session of sessions) {
         try {
           const status = this.persistSession(agentId, session, projects, ref)
@@ -116,10 +154,12 @@ export class Scanner {
           else if (status === 'updated') result.updated += 1
           else result.skipped += 1
         } catch (err) {
+          persistFailed = true
           result.failed += 1
           errors.push(`${ref.path}: ${(err as Error).message}`)
         }
       }
+      if (persistFailed) continue // 部分写入失败时不删除旧记录，也不将来源标记为已同步
       // 源端已删除的会话不再保留（仅清理本 Agent 自己写入的记录）
       try {
         this.repo.deleteSessionsMissingFromSource(
@@ -150,15 +190,12 @@ export class Scanner {
     projects: ReturnType<Repo['listProjects']>,
     ref: SourceRef
   ): 'inserted' | 'updated' | 'skipped' {
-    const fingerprint = computeFingerprint({
-      agentId,
-      externalId: session.externalId,
-      sourcePath: session.externalId ? null : session.sourcePath
-    })
     const contentHash = computeContentHash(
       session.title,
       session.messages.map((m) => ({ role: m.role, content: m.content }))
     )
+    const fingerprint = computeFingerprint({ agentId, externalId: session.externalId,
+      sourcePath: session.externalId ? null : session.sourcePath, contentHash })
     const autoProjectId = resolveAutoProjectId(
       [session.cwd, session.sourcePath],
       projects.map((p) => ({ id: p.id, rootPath: p.rootPath }))

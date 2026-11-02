@@ -27,3 +27,27 @@ Thumbs.db
 # 编辑器
 .vscode/
 .idea/
+
+# 真实会话、完整备份与密钥（构造样本明确保留）
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.jsonl
+*.jsonl.zst
+*.pem
+*.key
+*.pfx
+*.p12
+agent-vault-export-*
+agent-vault-backup-*
+backups/
+exports/
+!tests/fixtures/**/*.jsonl
+
+*.restore-pending
+*.restore-previous
+*.sqlite3-*
+*.tmp
+.npmrc

@@ -29,8 +29,13 @@ export function parseJsonImport(text: string): { bundle?: ExportBundle; error?: 
     return { error: `JSON 解析失败：${(err as Error).message}` }
   }
   if (!isBundle(parsed)) return { error: '文件格式不正确：缺少 version / sessions 字段' }
-  if (parsed.version > EXPORT_FORMAT_VERSION) {
+  if (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > EXPORT_FORMAT_VERSION) {
     return { error: `不支持的导出版本：${parsed.version}（当前支持 ${EXPORT_FORMAT_VERSION}）` }
+  }
+  parsed.projects ??= []
+  if (!Array.isArray(parsed.projects) || parsed.projects.some((p) => !p ||
+    typeof p.id !== 'string' || !p.id || typeof p.name !== 'string' || typeof p.rootPath !== 'string')) {
+    return { error: '项目格式不正确：需要 id / name / rootPath' }
   }
   return { bundle: parsed }
 }
@@ -123,25 +128,35 @@ export function importSessions(
   const knownProjects = repo.listProjects()
   for (const session of sessions) {
     try {
+      if (!session || typeof session.title !== 'string' || !Array.isArray(session.messages) ||
+        session.messages.some((m) => !m || typeof m.role !== 'string' || typeof m.content !== 'string')) {
+        throw new Error('会话需要 title 和有效的 messages 数组')
+      }
+      for (const value of [session.agentId, session.externalId, session.sourcePath, session.sourceCwd, session.manualProjectId]) {
+        if (value != null && typeof value !== 'string') throw new Error('Agent、来源和归属字段必须是字符串')
+      }
+      for (const value of [session.createdAt, session.updatedAt, ...session.messages.map((m) => m.createdAt)]) {
+        if (value != null && (typeof value !== 'number' || !Number.isFinite(value))) throw new Error('时间戳必须是有效数字或 null')
+      }
       const agentId = session.agentId || options.agentId
       if (!agentId) {
         result.failed += 1
         result.errors.push(`会话「${session.title}」缺少 Agent 标识`)
         continue
       }
-      const fingerprint = computeFingerprint({
-        agentId,
-        externalId: session.externalId,
-        sourcePath: session.externalId ? null : session.sourcePath
-      })
       const contentHash = computeContentHash(
         session.title,
         session.messages.map((m) => ({ role: m.role, content: m.content }))
       )
+      const fingerprint = computeFingerprint({ agentId, externalId: session.externalId,
+        sourcePath: session.externalId ? null : session.sourcePath, contentHash })
       const autoProjectId = resolveAutoProjectId(
         [session.sourceCwd, session.sourcePath],
         knownProjects.map((p) => ({ id: p.id, rootPath: p.rootPath }))
       )
+      if (session.manualProjectId && !knownProjects.some((p) => p.id === session.manualProjectId)) {
+        throw new Error(`手动归属项目不存在：${session.manualProjectId}`)
+      }
       const outcome = repo.upsertSession({
         agentId,
         externalId: session.externalId,
@@ -149,8 +164,8 @@ export function importSessions(
         title: session.title,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        sourcePath: session.sourcePath,
-        sourceCwd: session.sourceCwd,
+        sourcePath: session.sourcePath ?? '',
+        sourceCwd: session.sourceCwd ?? null,
         rawMeta: session.rawMeta ?? { imported: true },
         contentHash,
         autoProjectId,
@@ -162,13 +177,16 @@ export function importSessions(
         }))
       })
       // 导出包里带的手动归属必须一并恢复，否则「导出→导入」会丢掉手动归组
-      repo.setSessionProject(outcome.id, session.manualProjectId ?? null)
+      if (session.manualProjectId !== undefined) {
+        const projectId = session.manualProjectId
+        repo.setSessionProject(outcome.id, projectId)
+      }
       if (outcome.status === 'inserted') result.imported += 1
       else if (outcome.status === 'updated') result.updated += 1
       else result.skipped += 1
     } catch (err) {
       result.failed += 1
-      result.errors.push(`${session.title}: ${(err as Error).message}`)
+      result.errors.push(`${session?.title ?? "无标题"}: ${(err as Error).message}`)
     }
   }
   return result
@@ -180,7 +198,6 @@ export function importMarkdownSessions(
   parsed: ParsedMarkdownSession[],
   options: ImportOptions = {}
 ): ImportResult {
-  const result: ImportResult = { imported: 0, updated: 0, skipped: 0, failed: 0, errors: [] }
   // 1) 登记涉及的项目
   for (const item of parsed) {
     if (!item.projectName) continue
@@ -191,51 +208,19 @@ export function importMarkdownSessions(
       repo.saveProject({ name: item.projectName, rootPath: item.projectPath || item.projectName })
     }
   }
-  // 2) 导入会话
+  // 2) 共用 JSON 的校验、内容去重和错误统计逻辑。
   const projects = repo.listProjects()
-  for (const item of parsed) {
-    const agentId = item.agentId || options.agentId
-    if (!agentId) {
-      result.failed += 1
-      result.errors.push(`会话「${item.title}」缺少 Agent 标识`)
-      continue
-    }
+  const sessions: ExportSession[] = parsed.map((item) => {
     const project = item.projectName
       ? projects.find((p) => p.name === item.projectName || p.rootPath === item.projectPath)
       : undefined
-    const fingerprint = computeFingerprint({
-      agentId,
-      externalId: item.externalId,
-      sourcePath: item.externalId ? null : item.sourcePath
-    })
-    const contentHash = computeContentHash(
-      item.title,
-      item.messages.map((m) => ({ role: m.role, content: m.content }))
-    )
-    const autoProjectId = resolveAutoProjectId(
-      [item.sourceCwd, item.sourcePath, item.projectPath],
-      projects.map((p) => ({ id: p.id, rootPath: p.rootPath }))
-    )
-    const outcome = repo.upsertSession({
-      agentId,
-      externalId: item.externalId,
-      fingerprint,
-      title: item.title,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-      sourcePath: item.sourcePath,
-      sourceCwd: item.sourceCwd || null,
-      rawMeta: { imported: 'markdown' },
-      contentHash,
-      autoProjectId,
-      sourceMtime: 0,
-      messages: item.messages
-    })
-    if (outcome.status === 'inserted') result.imported += 1
-    else if (outcome.status === 'updated') result.updated += 1
-    else result.skipped += 1
-    // 手动归属用 upsert 返回的会话 id 精确设置（此前按列表首条匹配，几乎永远匹配不上）
-    if (project) repo.setSessionProject(outcome.id, project.id)
-  }
-  return result
+    return {
+      id: '', agentId: item.agentId || options.agentId || '', externalId: item.externalId,
+      title: item.title, createdAt: item.createdAt, updatedAt: item.updatedAt,
+      messageCount: item.messages.length, sourcePath: item.sourcePath, sourceCwd: item.sourceCwd || null,
+      autoProjectId: null, manualProjectId: project?.id ?? null,
+      rawMeta: { imported: 'markdown' }, messages: item.messages
+    }
+  })
+  return importSessions(repo, sessions, options)
 }

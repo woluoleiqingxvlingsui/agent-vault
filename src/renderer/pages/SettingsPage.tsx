@@ -3,6 +3,8 @@ import { api } from '../api'
 import type { AgentDescriptor, AppInfo, ScanResult } from '../../shared/types'
 import { Badge, Button, Collapsible, ToastStack, useToasts } from '../components/ui'
 import { Icon } from '../components/Icon'
+import ScanSettings from '../components/ScanSettings'
+import AgentLaunchEditor from '../components/AgentLaunchEditor'
 import { StatusDot } from '../components/LauncherIcon'
 
 interface Props {
@@ -116,15 +118,15 @@ export default function SettingsPage({ agents, onChanged }: Props): React.JSX.El
           : [{ name: 'Markdown', extensions: ['md', 'markdown'] }]
       )
       if (!picked) return
-      const result = await api.io.import(picked, format)
-      if (!result.ok) {
-        push('err', result.error ?? '导入失败')
+      const response = await api.io.import(picked, format)
+      if (!response.ok) {
+        push('err', response.error)
         return
       }
-      push(
-        'ok',
-        `导入完成：新增 ${result.imported}，更新 ${result.updated}，跳过 ${result.skipped}`
-      )
+      const result = response.result
+      push(result.failed ? 'err' : 'ok',
+        `导入完成：新增 ${result.imported}，更新 ${result.updated}，跳过 ${result.skipped}，失败 ${result.failed}` +
+        (result.errors.length ? `。${result.errors.slice(0, 3).join('；')}` : ''))
       await onChanged()
     } catch (err) {
       push('err', (err as Error).message)
@@ -157,6 +159,7 @@ export default function SettingsPage({ agents, onChanged }: Props): React.JSX.El
         </div>
       </header>
 
+      <ScanSettings agents={agents} onChanged={onChanged} />
       <section>
         <div className="section-title" style={{ marginBottom: 8 }}>
           <Icon name="sparkle" size={14} />
@@ -203,6 +206,10 @@ export default function SettingsPage({ agents, onChanged }: Props): React.JSX.El
                     placeholder={a.discoveredSources[0] ?? '未探测到来源路径'}
                     title={sources[a.id] || a.sourceHint}
                   />
+                  <Button size="sm" onClick={async () => {
+                    const picked = a.recordSupport === 'sqlite' ? await api.shell.pickFile() : await api.shell.pickDirectory()
+                    if (picked) setSources((prev) => ({ ...prev, [a.id]: picked }))
+                  }}>浏览</Button>
                   <Button size="sm" variant="ghost" onClick={() => void saveSource(a.id)}>
                     保存
                   </Button>
@@ -219,7 +226,8 @@ export default function SettingsPage({ agents, onChanged }: Props): React.JSX.El
               </div>
               {a.lastError ? <div className="err-text">{a.lastError}</div> : null}
 
-              <Collapsible title="启动配置与能力原因">
+              <Collapsible title="编辑启动配置与能力原因">
+                <AgentLaunchEditor agent={a} onChanged={onChanged} />
                 <dl className="meta-grid">
                   <dt>启动命令</dt>
                   <dd className="mono">{a.launchCommand}</dd>
@@ -336,7 +344,7 @@ export default function SettingsPage({ agents, onChanged }: Props): React.JSX.El
               </span>
               <div>
                 <div className="io-card-title">导出 JSON</div>
-                <div className="io-card-desc">完整保真，含项目、消息与来源元数据</div>
+                <div className="io-card-desc">会话交换，含项目、消息与来源元数据（不含启动项和设置）</div>
               </div>
               <Button size="sm" className="grow" onClick={() => void doExport('json')}>
                 导出
@@ -400,7 +408,13 @@ export default function SettingsPage({ agents, onChanged }: Props): React.JSX.El
           </dl>
           <div className="row-actions" style={{ marginTop: 12 }}>
             <Button variant="primary" icon="database" onClick={() => void doBackup()}>
-              备份数据库
+              完整备份数据库
+            </Button>
+            <Button onClick={async () => {
+              try { await api.io.restore() } catch (err) { push('err', (err as Error).message) }
+            }}>从完整备份恢复</Button>
+            <Button onClick={() => void api.app.demo()}>
+              {info?.demo ? '退出演示并返回个人数据' : '打开独立演示模式'}
             </Button>
             <Button variant="ghost" icon="external" onClick={() => void api.app.revealDataDir()}>
               打开数据目录

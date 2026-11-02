@@ -54,8 +54,10 @@ export default function ConversationsPage({
 
   // 请求序号：慢的旧响应不再覆盖新结果
   const requestId = useRef(0)
+  const loadedCount = useRef(0)
+  const [loadingMore, setLoadingMore] = useState(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (append = false) => {
     const id = ++requestId.current
     const result = await api.sessions.list({
       agentId,
@@ -63,15 +65,17 @@ export default function ConversationsPage({
       search: debouncedSearch,
       sortBy,
       sortDir,
-      limit: 300
+      limit: 300,
+      offset: append ? loadedCount.current : 0
     })
     if (id !== requestId.current) return
-    setSessions(result.items)
+    loadedCount.current = (append ? loadedCount.current : 0) + result.items.length
+    setSessions((old) => append ? [...old, ...result.items.filter((item) => !old.some((s) => s.id === item.id))] : result.items)
     setTotal(result.total)
   }, [agentId, projectId, debouncedSearch, sortBy, sortDir])
 
   useEffect(() => {
-    void load()
+    void load().catch((err) => push('err', (err as Error).message))
   }, [load, token])
 
   useEffect(() => {
@@ -79,11 +83,11 @@ export default function ConversationsPage({
       setDetail(null)
       return
     }
-    void api.sessions
-      .get(selectedId)
-      .then((result) =>
-        setDetail(result as { session: ConversationSession; messages: ConversationMessage[] } | null)
-      )
+    let disposed = false
+    void api.sessions.get(selectedId).then((result) => {
+      if (!disposed) setDetail(result)
+    }).catch((err) => { if (!disposed) push('err', (err as Error).message) })
+    return () => { disposed = true }
   }, [selectedId, token])
 
   const projectName = useMemo(() => {
@@ -276,6 +280,11 @@ export default function ConversationsPage({
               </button>
             ))
           )}
+          {sessions.length < total && <Button loading={loadingMore} onClick={async () => {
+            setLoadingMore(true)
+            try { await load(true) } catch (err) { push('err', (err as Error).message) }
+            finally { setLoadingMore(false) }
+          }}>加载更多（已显示 {sessions.length} / {total}）</Button>}
         </section>
 
         <section className="detail">

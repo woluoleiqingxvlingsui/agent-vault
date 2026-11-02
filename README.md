@@ -1,472 +1,190 @@
-# Agent Vault · 项目启动器与多 Agent 对话记录管理器
+# Agent Vault · 项目启动器与 Agent 对话记录管理器
 
-Windows 桌面应用（本地优先）：把个人项目、常用软件、CLI 工具和 Agent 入口集中管理，并在同一处查看多种 Agent 的本地对话记录。
+Windows 本地桌面工具：集中启动应用、CLI 与项目目录，按 Agent 和项目查看已有对话记录。
 
-- 技术栈：**Electron 38 + React 19 + TypeScript + SQLite（Node 内置 `node:sqlite`）**
-- 界面：**自建设计系统**（CSS 变量令牌 + **深色 / 浅色双主题** + 内联 SVG 图标集，无 UI 组件库依赖）
-- 数据全部存在本机 `%APPDATA%\project-launcher-agent-vault\agent-vault.db`，查看已导入数据**不需要联网**
-- 外部 Agent 的原始记录文件**只读**：本应用不修改、不删除任何 Agent 的原始数据
+**当前版本为 0.1.0 测试版，仅支持 Windows 10 / 11 x64。** 不需要账号，也不需要配置 API Key。
 
-![启动页](docs/screenshots/launch.png)
+![启动页示例](docs/screenshots/launch.png)
 
-|  |  |  |
+## 普通用户：下载与首次使用
+
+1. 前往 [Releases](https://github.com/woluoleiqingxvlingsui/agent-vault/releases)；如尚无 Release，可按后面的步骤从源码构建。
+2. 推荐下载 `Agent Vault-0.1.0-x64.exe` 安装包，运行后可选择安装目录并创建快捷方式。
+3. 不想安装可选 `Agent Vault-0.1.0-portable.exe`。**便携版表示免安装，数据仍保存在 AppData，不随 exe 移动。**
+4. 使用这两种 exe 均无需额外安装 Node.js、npm 或编译工具。要启动某个外部 Agent，仍需自行安装该 Agent 及其所需运行环境。
+5. 首次启动先选择要汇总的来源，再点击“保存范围并开始扫描”；也可“暂不扫描”。确认前不会读取会话正文。旧版本升级后首次使用同样需要确认。
+6. 到“项目”登记根目录，已有会话按路径自动归组；到“设置 → 编辑启动配置与能力原因”修改程序、参数及工作目录。
+
+安装包未配置代码签名，Windows 可能提示未知发布者。请核实文件来源。当前版本没有自动更新功能。
+
+## 隐私：启动之前需要知道的事
+
+- 主进程没有上传接口、遥测或账号体系，查看已导入记录无需联网。外部 Agent 启动后的联网行为由其自身控制。
+- 勾选来源后，本应用会把**会话正文、来源路径与元数据**复制进本机数据库，**未加密保存**。
+- 原始 Agent 文件只读访问，不回写、不删除。Qoder SQLite 先复制到临时目录，在副本上解析，用完清理。
+- 自动扫描可在设置中暂停；正在执行的扫描会完成。暂停后仍可手动扫描已选来源。
+- 取消勾选只停止后续自动扫描，不删除已经导入的内容。
+- 数据目录为 `%APPDATA%\project-launcher-agent-vault\`；确切位置以“设置 → 本地数据”为准。
+- 卸载或删除便携 exe 不会自动删除 AppData。需要清理时先备份、退出应用，再手动清理数据目录。
+- 导出、备份和自动生成的恢复前备份均可能含完整聊天记录。请勿上传到公开仓库或作为公开 issue 附件。
+
+仓库截图与 fixture 使用演示数据，未包含运行数据库。`.gitignore` 排除了常见数据库、会话原文件、默认命名导出、证书和私钥，但无法识别任意重命名的敏感文件；提交前仍应检查暂存文件。
+
+## 功能与操作
+
+| 页面 | 操作 |
+| --- | --- |
+| 启动 | 新增、编辑、启用/禁用应用、CLI 或项目目录；搜索、卡片/列表视图；一键启动 |
+| 项目 | 登记根目录、关联启动项、重新归组；取消关联可正常保存 |
+| 对话记录 | Agent/项目筛选、标题与正文搜索、时间排序、详情阅读、手动归组；每批 300 条，支持加载更多 |
+| 设置 | 扫描范围、暂停扫描、来源浏览/编辑、启动配置与测试、会话导入导出、完整备份与恢复、独立演示 |
+
+CLI 参数按数组保存，界面中一行填写一个参数。例如 `--port` 和 `3000` 各占一行。工作目录填写文件夹；程序路径使用文件选择器可避免空格路径填写错误。
+
+启动命令可使用绝对路径，或 PATH 中的命令名，如 `node` / `node.exe`。`.cmd` / `.bat` 由 cmd.exe 执行，`.js` 由本机 Node 执行。CLI 优先使用可探测到的 Windows Terminal，否则普通启动。
+
+用户保存的启动命令、参数与工作目录重启后保留。程序搬家或升级导致路径变化时，请在设置中更新。设置页和启动页编辑的是同一个启动项。
+
+项目按目录边界和最长路径匹配，手动归属优先；“自动归组”清除手动覆盖，“未分组”强制保持未分组。项目根目录修改后重新计算自动归组。
+
+对话中的代码块有单独显示，部分 Agent 注入标签默认折叠，长消息可展开；正文按文本展示，不执行其中的脚本或命令。侧边栏可切换深浅主题。
+
+## Agent 支持范围
+
+以下格式基于开发环境中的样本和解析测试；各 Agent 版本、安装渠道和数据格式可能不同。界面能力状态由本机配置与来源探测决定，不代表其他电脑已验证。
+
+| Agent | 默认记录来源 | 自动记录能力 |
 | --- | --- | --- |
-| ![对话记录](docs/screenshots/launch-conversations.png) | ![项目](docs/screenshots/launch-projects.png) | ![设置](docs/screenshots/launch-settings.png) |
+| Qoder CN | `%APPDATA%\com.qodercn.app.stable\main.sqlite` | SQLite 会话表，支持增量扫描 |
+| Qoder 桌面端 | `%APPDATA%\com.qoder.app.stable\main.sqlite` | 同类 SQLite 表结构，支持增量扫描 |
+| Codex 桌面端 / CLI | `%USERPROFILE%\.codex\sessions` 下 `.jsonl.zst` | 按 originator 区分，支持增量扫描 |
+| MiniMax CLI（pi 格式） | `%USERPROFILE%\.pi\agent\sessions` 下 `.jsonl` | 支持增量扫描；不是任意 MiniMax CLI 格式的通用解析器 |
+| MiniMax 桌面端 | `%USERPROFILE%\.minimax\v2\sessions` | `messages.jsonl` + `manifest.json`，支持增量扫描 |
+| Qoder CLI | `%USERPROFILE%\.qoder-cli` | 开发环境未发现可验证正文格式，仅保留启动与通用导入 |
+| Trae CN | `%APPDATA%\Trae CN\ModularData\ai-agent\database.db` | 开发环境为私有格式，暂不自动解析 |
 
-> 仓库里的截图由 `scripts/make-demo-data.ts` 生成的**虚构演示数据**渲染而成，
-> 不含任何真实路径、真实项目名或真实对话内容。复现方式见 [§10.2](#102-重新生成示例截图)。
+修改来源路径后文件监听重建；共用目录会通知相关 Agent。文件事件采用防抖，另有约 60 秒轮询兜底。Qoder 把 WAL 变更计入扫描判断；来源忙碌时可能需等待或手动重扫。
 
----
+“可启动”通常表示目标文件已定位；MSIX 表示已配置应用入口，实际安装与启动结果仍需通过“保存并测试启动”核实。
 
-## 目录
+## 会话导出与完整备份：用途不同
 
-1. [功能](#1-功能)
-2. [隐私与安全](#2-隐私与安全)
-3. [环境要求](#3-环境要求)
-4. [快速开始](#4-快速开始)
-5. [构建与打包](#5-构建与打包)
-6. [本地数据与备份](#6-本地数据与备份)
-7. [导入导出格式](#7-导入导出格式)
-8. [Agent 能力矩阵](#8-agent-能力矩阵)
-9. [归组规则](#9-归组规则)
-10. [测试与示例截图](#10-测试与示例截图)
-11. [开源参考](#11-开源参考)
-12. [已知限制](#12-已知限制)
-13. [贡献指南](#13-贡献指南)
-14. [许可证](#14-许可证)
-
----
-
-## 1. 功能
-
-### 1.1 界面
-
-| 页 | 内容 |
-| --- | --- |
-| 启动 | 统计条（启动项 / 已启用 / Agent 入口 / 最近启动）、**首次使用引导**、最近使用横向卡片、来源与类型筛选、**卡片 / 列表**双视图、卡片内一键启动 |
-| 项目 | 项目卡片（会话数 / 根目录 / 关联启动项）、登记与编辑、重新归组、卡片内直接启动 |
-| 对话记录 | Agent 标签条（含各 Agent 会话数，无记录的标签弱化）、项目侧栏（含固定「未分组」）、会话列表、详情阅读、来源与元数据折叠、项目归属调整、手动扫描 |
-| 设置 | Agent 能力卡片（来源路径、能力徽章、扫描状态、启动配置折叠、重新扫描 / 启动）、导入导出卡片、本地数据与备份 |
-
-界面细节：
-
-- 启动项卡片显示 **Windows 原生文件图标**（主进程 `app.getFileIcon` 提取，按路径缓存），取不到时回退到类型图标或名称首字母色块；原生图标尺寸不一，统一加底板保证视觉重量一致。
-- 长路径采用**中间截断**（保留头尾，省略中段），关键信息不丢；完整值在 `title` 提示中。
-- 对话详情中的 ``` 代码块按代码块渲染；Agent 注入内容（`<system-reminder>` / `<agent-context>` / `<system_info>`）**默认折叠**为一行摘要，点击可展开原文（展示层折叠，不修改、不丢弃数据）；超过 1200 字符的正文默认折叠并提供展开。
-- 操作反馈使用右下角 Toast（成功 / 失败），弹窗支持 Esc 关闭，启动页支持 `Ctrl+N` 新建启动项。
-- 主题切换按钮位于侧边栏底部，选择持久化在 `localStorage`，仅影响界面外观。
-
-### 1.2 启动项管理
-
-三类启动项：**普通应用 / CLI 命令 / 项目目录**。
-
-| 字段 | 说明 |
-| --- | --- |
-| 名称 / 类型 | app / cli / project |
-| 可执行文件或命令 | 绝对路径或 PATH 中的命令名 |
-| 参数 | **参数数组**（不拼接 shell 字符串） |
-| 工作目录 | 启动前校验是否存在 |
-| 关联项目 | 可选 |
-| 图标 / 标记 | 可选 |
-| 启用状态 | 可随时禁用/启用 |
-| 最近启动时间 | 启动成功后记录 |
-
-CLI 启动会优先用 Windows Terminal 拉起独立控制台；`.cmd`/`.bat` 通过 `cmd.exe` 执行，**路径与每个参数都单独加双引号**（引号内的 `&`、`|`、`>` 不会被当作命令操作符）；`.js` 入口通过 `node.exe` 执行。启动失败会给出可理解的错误（找不到程序 / 工作目录不存在 / 权限失败 / 退出码 / stderr 首行）。
-
-### 1.3 项目管理与自动归组
-
-登记项目根目录后，对话记录按**路径最长匹配**归组；无法匹配进入固定的「未分组」。手动调整归属后保存覆盖关系，重启与重新扫描都保持不变。
-
-### 1.4 对话记录
-
-- 按 Agent 切换、按项目 / 「未分组」筛选
-- 标题与正文全文搜索（本地 `LIKE` 检索，输入做了 250ms 防抖）
-- 按创建时间 / 更新时间排序
-- 会话详情、来源元数据（来源文件、cwd、外部会话 ID、导入指纹、原始元数据）
-- 手动调整项目归属、重新归组全部记录
-- 手动重新扫描单个 Agent / 扫描全部
-- JSON / Markdown 导入与导出
-
-### 1.5 Agent 适配器与能力矩阵
-
-每个 Agent 一个独立适配器，负责启动配置、来源发现、解析归一化、去重、增量扫描与能力状态。
-
-能力状态：`launchable`（可启动）、`importable`（已验证可导入）、`watchable`（已验证可增量扫描）、`needs_config`（需用户配置来源路径）、`unsupported`（当前环境或格式无法验证）。状态**基于真实探测**，鼠标悬停可看具体原因。
-
----
-
-## 2. 隐私与安全
-
-这一节请务必先读，它决定了你可以放心把本工具装在哪台机器上。
-
-### 2.1 它会读什么
-
-本应用会**只读**访问本机其它 AI Agent 的会话记录目录，用来把历史对话汇总到一个地方查看：
-
-| Agent | 读取位置 |
-| --- | --- |
-| Qoder CN / Qoder 桌面端 | `%APPDATA%\com.qodercn.app.stable\main.sqlite`、`%APPDATA%\com.qoder.app.stable\main.sqlite` |
-| Codex 桌面端 / Codex CLI | `%USERPROFILE%\.codex\sessions\**\*.jsonl.zst` |
-| MiniMax CLI | `%USERPROFILE%\.pi\agent\sessions\**\*.jsonl` |
-| MiniMax 桌面端 | `%USERPROFILE%\.minimax\v2\sessions\**\messages.jsonl` |
-
-### 2.2 它不会做什么
-
-- **不联网**：渲染层 CSP 为 `default-src 'self'`，主进程没有出站请求，没有遥测、没有账号体系。
-- **不回写原始文件**：SQLite 来源先整体复制到临时目录再解析，**原始文件从不被 SQLite 打开**；其它来源以只读方式读取，不修改内容也不修改 mtime。
-- **不外传数据**：导入导出只写到你自己选的文件。
-- **不删除 Agent 数据**：应用内也没有「清空全部会话」这类会删数据的操作。
-
-### 2.3 数据放在哪
-
-| 项 | 位置 |
-| --- | --- |
-| 数据库 | `%APPDATA%\project-launcher-agent-vault\agent-vault.db` |
-| 备份 | 设置页「备份数据库」可另存为 `.db` 文件 |
-| 临时副本 | 解析 SQLite 来源时的 `%TEMP%\qlv-qoder-*`，用完即删 |
-
-数据库里保存的是**会话正文**，等同于你的聊天记录本身。如果这台机器是共享的，请自行评估是否需要保留；卸载应用不会自动删除该数据库，需要时可在设置页备份后手动清理。
-
-### 2.4 仓库与截图
-
-本仓库**不包含任何真实数据**：截图由虚构演示数据生成，`.gitignore` 也屏蔽了本地截图产物（`*-verify*.png`）。如果你要 fork 并提交自己的截图，请先确认画面里不含真实路径、真实项目名或真实对话内容。
-
----
-
-## 3. 环境要求
-
-| 项 | 版本 | 说明 |
+| 操作 | 包含什么 | 使用场景 |
 | --- | --- | --- |
-| Node.js | ≥ 22.13（推荐 22.x / 24.x） | 需要内置 `node:sqlite`；Electron 38 内置 Node 22.22 |
-| npm | ≥ 10 | 也可用 pnpm |
-| 操作系统 | Windows 10 / 11 | 打包与运行验证均在 Windows 完成 |
+| 导出 JSON | 会话、消息时间戳、来源元数据、项目路径与手动归属 | 交换或归档会话；不包含启动项、扫描设置和全部应用配置 |
+| 导出 Markdown | 可读正文、部分来源与项目信息 | 人工阅读与交换；会丢失消息时间戳、原始元数据、自动/手动归组区别及正文首尾空白等 |
+| 完整备份数据库 | 启动项、项目、会话、来源设置、扫描范围等数据库内容 | 恢复应用数据；主题选择等 localStorage 界面偏好不在其中 |
 
-无需 Visual Studio 编译工具（SQLite 使用 Node 内置绑定，无原生模块）。
+### 完整备份与恢复
 
-> 国内网络建议先设置镜像再安装依赖：
-> `npm config set registry https://registry.npmmirror.com`
+1. 设置 → “完整备份数据库”，另存为 `.db`。应用通过 SQLite 一致性快照生成，不直接复制活跃主库，包含已提交的 WAL 数据。
+2. 恢复时选择“从完整备份恢复”，选择 `.db` 并确认。JSON / Markdown 会话导出不能用作完整备份。
+3. 应用先验证完整性与版本，在当前数据目录的 `backups/` 保存恢复前备份，准备迁移后的副本，再重启应用替换数据库。
+4. 恢复会替换启动项、项目、设置和会话，不影响外部 Agent 原始文件。跨电脑恢复后请检查程序和来源路径。
+5. 损坏、非本应用数据库或更高版本备份会拒绝恢复。恢复过程失败时保留当前数据；若启动阶段替换失败，保留回滚文件并报告错误。
 
----
+恢复前备份不会自动清理，请自行保管或在退出应用后清理。不要把备份保存到当前正在使用的 `agent-vault.db`。
 
-## 4. 快速开始
+### 会话导入与去重
 
-```bash
-npm install          # 安装依赖
-npm run dev          # 启动开发版（Vite HMR + Electron）
-```
+设置页选择 JSON 或 Markdown 文件导入，显示新增、更新、跳过、失败数量以及失败原因。部分失败时成功条目仍保留，可修正失败条目后再次导入。
 
-常用脚本：
+身份优先级：`Agent + 外部会话 ID` → `Agent + 来源路径` → `Agent + 标题和消息内容指纹`。前两者相同且内容变化时更新原记录；没有稳定标识时仅对完全相同的标题和消息角色/正文去重，修改内容后可能形成新会话。
 
-```bash
-npm run typecheck    # 主进程 + 渲染进程类型检查
-npm test             # 自动化测试（vitest）
-npm run verify       # typecheck + test（提交前跑这个）
-npm run build        # 产出 out/main, out/preload, out/renderer
-npm start            # 预览构建产物
-npm run make:demo    # 生成一份虚构演示数据（见 §10.2）
-```
-
-首次启动后应用会自动登记 8 个 Agent 入口并做一次全量扫描。想先看效果但不想暴露真实会话，可以先跑一遍演示数据：
-
-```powershell
-$env:VAULT_DEMO_ROOT = 'C:\agent-vault-demo'
-npm run make:demo
-$env:USERPROFILE = 'C:\agent-vault-demo'
-$env:APPDATA = 'C:\agent-vault-demo\AppData\Roaming'
-$env:LOCALAPPDATA = 'C:\agent-vault-demo\AppData\Local'
-npm run dev
-```
-
----
-
-## 5. 构建与打包
-
-```bash
-# 免安装便携目录（最快验证）
-npm run pack:dir
-
-# Windows 安装包（NSIS）+ 便携版单文件
-npm run pack:nsis      # 仅 NSIS 安装包
-npm run pack:portable  # 仅便携版
-
-# 完整发布流程：类型检查 + 测试 + 构建 + 打包
-npm run release
-```
-
-产物位于 `release/`：
-
-- `Agent Vault-0.1.0-x64.exe` — NSIS 安装包
-- `Agent Vault-0.1.0-portable.exe` — 免安装单文件
-- `win-unpacked/` — 免安装目录版
-
-> 国内网络建议先设置镜像再打包：
-> `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`
-> `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`
-
-### 5.1 GitHub Actions 自动出包
-
-仓库内置两条 workflow：
-
-| workflow | 触发 | 做什么 |
-| --- | --- | --- |
-| `.github/workflows/ci.yml` | push / PR 到 main | 类型检查 + 单元测试 + 构建 |
-| `.github/workflows/release.yml` | 打 `v*` tag | 构建 NSIS + 便携版，作为 Release 产物与 artifact 上传 |
-
-打 tag 即可拿到现成的 exe：
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
----
-
-## 6. 本地数据与备份
-
-| 项 | 路径 |
-| --- | --- |
-| 数据目录 | `%APPDATA%\project-launcher-agent-vault\` |
-| 数据库 | `%APPDATA%\project-launcher-agent-vault\agent-vault.db` |
-| 备份 | 设置页「备份数据库」可另存为 `.db` 文件 |
-
-渲染层可用的主进程接口（全部为本地 IPC，不访问网络）：
-
-| 通道 | 用途 |
-| --- | --- |
-| `app:info` | 数据目录 / 数据库文件 / 版本号 |
-| `app:icon` | 提取文件原生图标（dataURL，主进程内按路径缓存，失败返回 null） |
-| `app:openPath` | 在资源管理器中定位文件 |
-| `shell:pickDirectory` / `shell:pickFile` | 目录 / 文件选择对话框 |
-| `launchers:*` | 启动项增删改查、启停、启动 |
-| `projects:*` | 项目增删改查、重新归组、统计 |
-| `agents:*` | Agent 列表、来源路径设置、重新扫描 |
-| `sessions:*` | 会话列表 / 详情 / 手动归属 / 计数 |
-| `io:*` | JSON / Markdown 导入导出、数据库备份、打开数据目录 |
-
-数据库带迁移机制（`schema_migrations` 表），当前迁移版本：
-
-| 版本 | 名称 | 内容 |
-| --- | --- | --- |
-| 1 | `initial_schema` | launchers / projects / sessions / messages / settings / scan_state |
-| 2 | `incremental_scan_columns` | 增加 `content_hash` / `source_mtime` / `search_blob` 与索引 |
-| 3 | `launcher_protocol` | launchers 增加 `protocol`（exec / appsfolder） |
-| 4 | `source_scan_state` | 增加 `source_state`（按 agent_id + source_path 记录来源 mtime，作为增量判断依据） |
-
----
-
-## 7. 导入导出格式
-
-### 7.1 JSON（完整保真，推荐）
-
-导出文件包含 `version` / `exportedAt` / `total` / `projects` / `sessions`；**在空数据目录中导入可恢复内容、Agent 与项目归属**（含手动归属）。导出按 500 条一页分页拉取，不会在大库上静默截断。
-
-最小示例：
+JSON 格式版本为 1，示例：
 
 ```json
 {
   "version": 1,
-  "exportedAt": 1793534555695,
-  "total": 1,
-  "projects": [
-    { "id": "p-1", "name": "番茄钟", "rootPath": "C:\\Users\\me\\code\\tomato-clock" }
-  ],
-  "sessions": [
-    {
-      "id": "s-1",
-      "agentId": "codex-cli",
-      "externalId": "019f7a23-0000-7000-b6b4-c13decba45cc",
-      "title": "修复登录问题",
-      "createdAt": 1793534555695,
-      "updatedAt": 1793534561000,
-      "messageCount": 2,
-      "sourcePath": "C:\\Users\\me\\.codex\\sessions\\2026\\10\\25\\rollout-x.jsonl.zst",
-      "sourceCwd": "C:\\Users\\me\\code\\tomato-clock",
-      "autoProjectId": "p-1",
-      "manualProjectId": null,
-      "rawMeta": { "originator": "Codex Desktop" },
-      "messages": [
-        { "role": "user", "content": "帮我修一下登录", "createdAt": 1793534555695 },
-        { "role": "assistant", "content": "已定位到 token 校验逻辑。", "createdAt": 1793534561000 }
-      ]
-    }
-  ]
+  "projects": [],
+  "sessions": [{
+    "agentId": "codex-cli",
+    "externalId": "example-session-1",
+    "title": "安装示例",
+    "createdAt": 1793520000000,
+    "updatedAt": 1793520001000,
+    "sourcePath": "",
+    "sourceCwd": null,
+    "manualProjectId": null,
+    "rawMeta": {},
+    "messages": [{ "role": "user", "content": "如何安装？", "createdAt": 1793520000000 }]
+  }]
 }
 ```
 
-去重规则：导入指纹 = `sha256(agentId + 外部会话ID | 来源路径)`。**重复导入同一份文件不会产生副本**；内容变化则更新同一会话。
+Markdown 使用 `# 会话标题`、`- agent: codex-cli`、`## user` / `## assistant`，多个会话以 `---` 分隔。建议先导出一份作为格式模板。导出会转义正文中的标题和分隔线，避免破坏会话边界。
 
-### 7.2 Markdown（人工可读交换）
+## 独立演示模式
 
-```markdown
-# 修复登录问题
+设置 → “打开独立演示模式”，应用重启到 `%TEMP%\agent-vault-demo-app`，显示虚构会话及演示标记。此模式不读取真实 Agent 记录，也不启动外部程序；演示修改只保存在演示目录。点击顶部“退出演示并返回个人数据”重启回正常模式。
 
-- agent: codex-cli
-- project: 番茄钟
-- project-path: C:\Users\me\code\tomato-clock
-- source: C:\Users\me\.codex\sessions\2026\10\25\rollout-x.jsonl.zst
-- source-cwd: C:\Users\me\code\tomato-clock
-- external-id: 019f7a23-0000-7000-b6b4-c13decba45cc
-- created: 2026-10-25T01:22:35.695Z
-- updated: 2026-10-25T01:22:41.000Z
+演示模式不会改写个人数据库。演示文件可能被系统临时清理，下次进入会重新补充示例会话。
 
-## user
+## 从源码运行
 
-帮我修一下登录
-
-## assistant
-
-已定位到 token 校验逻辑。
-```
-
-多个会话之间用一行 `---` 分隔（分隔线前后允许空行）。Markdown 导入会**自动登记涉及的项目**并把会话归入该项目。
-
-导出时正文里的行首 `#`、整行 `---`、行首 `\` 会自动加反斜杠前缀，导入时还原，因此**正文含 Markdown 标题或分隔线也不会破坏结构**。唯一仍然丢失的是**消息级时间戳**（Markdown 格式不承载它），需要完整保真请用 JSON。
-
----
-
-## 8. Agent 能力矩阵（本机实测）
-
-探测环境：Windows 11，探测时间 2026-11-01。**记录能力均来自实际打开来源并解析成功，不是推测。**
-
-| # | Agent | 启动入口 | 启动 | 记录来源 | 记录 | 增量 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | Qoder CLI | `qoder`（本机未安装，需自行配置路径） | needs_config | `~\.qoder-cli`（仅 ai-stats 代码变更统计，无对话正文） | unsupported | 否 |
-| 2 | Qoder CN | `%LOCALAPPDATA%\Programs\Qoder CN\Qoder CN.exe` | launchable | `%APPDATA%\com.qodercn.app.stable\main.sqlite`（chat_sessions / chat_session_messages） | importable | watchable |
-| 3 | Qoder 桌面端 | `%LOCALAPPDATA%\Qoder\Qoder Launcher\Qoder Launcher.exe` | launchable | `%APPDATA%\com.qoder.app.stable\main.sqlite`（本机库为空，表结构一致） | importable | watchable |
-| 4 | MiniMax CLI | `node.exe …\@earendil-works\pi-coding-agent\dist\bundle\cli.js` | launchable | `~\.pi\agent\sessions\**\*.jsonl` | importable | watchable |
-| 5 | MiniMax 桌面端 | `%LOCALAPPDATA%\Programs\MiniMax Code\MiniMax Code.exe` | launchable | `~\.minimax\v2\sessions\**\messages.jsonl` + `manifest.json` | importable | watchable |
-| 6 | Codex 桌面端 | MSIX `OpenAI.Codex_2p2nqsd0c76g0!App`（shell:AppsFolder） | launchable | `~\.codex\sessions\**\*.jsonl.zst`（originator = `Codex Desktop`） | importable | watchable |
-| 7 | Codex CLI | npm 全局包内原生 `codex.exe` | launchable | 同上（originator ≠ `Codex Desktop`） | importable | watchable |
-| 8 | Trae 桌面端 | `%LOCALAPPDATA%\Programs\Trae CN\Trae CN.exe` | launchable | `%APPDATA%\Trae CN\ModularData\ai-agent\database.db`（文件头 `FB 13 12 CE`，非 SQLite） | unsupported | 否 |
-
-关于两个 `unsupported`：
-
-- **Qoder CLI**：本机 `~\.qoder-cli` 下只有 `ai-stats\`（AI 代码变更统计 JSON），未发现任何对话正文文件；PATH 中也没有 `qoder` 可执行文件。保留启动能力并可在设置中配置路径，同时提供通用 JSON / Markdown 导入。
-- **Trae 桌面端**：会话库 `database.db` 是私有格式（SQLite 打开直接报 `file is not a database`），`~\.trae-cn` 下也未找到可解析的对话正文。保留启动能力 + 通用导入通道，**不声称已自动同步**。
-
-Codex 桌面端与 CLI **共用** `~\.codex\sessions` 存储，应用按会话文件的 `originator` 字段区分归属（因此两者的增量状态也分开记录，互不干扰）。
-
-> 增量扫描的判定依据是**来源文件的 mtime**。Qoder 的来源是 WAL 模式的 SQLite 库，新数据先落到 `-wal`、主库 mtime 不变，因此实现会把 `-wal` / `-shm` 的 mtime 一并计入；Qoder 进程运行期间新增的会话，可能要等它退出触发 checkpoint 或手动点「重新扫描」才会出现。
-
----
-
-## 9. 归组规则
-
-1. 取会话的 `cwd`、来源路径、适配器提供的项目路径作为候选；
-2. 与已登记项目根目录做「路径包含」匹配（大小写不敏感，目录边界严格）；
-3. 多个项目匹配时取**路径最长**（最深）的项目；
-4. 无法匹配 → 「未分组」；
-5. 手动调整后写入 `manual_project_id`，**优先于**自动归组，重新扫描与重启都保持；
-6. 新增 / 删除 / 修改项目后自动触发一次「重新归组全部记录」，手动归属不受影响。
-
----
-
-## 10. 测试与示例截图
-
-```bash
-npm test        # 50 个用例
-npm run verify  # 类型检查 + 测试
-```
-
-| 测试文件 | 覆盖点 |
-| --- | --- |
-| `tests/repo.test.ts` | 启动项增删改禁用、项目增删改、Agent/项目筛选、搜索、时间排序、**重启后手动归组保持**、**项目统计（手动覆盖优先 / 未分组计数）** |
-| `tests/dedup.test.ts` | 导入指纹稳定性、重复导入不产生副本、内容变化触发更新 |
-| `tests/grouping.test.ts` | 路径最长匹配、前缀不误匹配、未分组、手动覆盖优先 |
-| `tests/regroup.test.ts` | 项目变更后重新归组、手动覆盖不被改写、删除项目后回退 |
-| `tests/adapters.test.ts` | **4 个适配器解析器**：Codex(.jsonl.zst)、MiniMax CLI(pi jsonl)、MiniMax 桌面端(messages.jsonl + manifest)、Qoder(SQLite)，并验证 Qoder 原始库未被修改 |
-| `tests/scanner.test.ts` | 增量扫描（按 mtime 跳过）、自动归组、未匹配进入未分组 |
-| `tests/io.test.ts` | JSON 导出→空库导入→再次导入不重复、Markdown 导出→导入往返 |
-| `tests/launcher.test.ts` | 可执行文件解析与错误提示、**`.cmd` 文件真实启动**（引号被 Node 转义曾导致必然失败） |
-| `tests/regression.test.ts` | 回归用例：Markdown 多会话切分、正文含 `##`/`---` 的往返、导入恢复手动归属、导出分页不截断、扫描使用用户配置来源、源端删除的会话被清理、WAL 模式下来源变更可感知 |
-
-fixture 位于 `tests/fixtures/`，均为**构造样本**（不含真实对话内容）。
-
-### 10.1 真实数据往返验证
-
-`scripts/` 下三个脚本针对**本机真实数据**做端到端验证（需要先启动过一次应用以生成数据库）：
-
-```bash
-npx vite-node scripts/verify-roundtrip.ts   # 导出 → 空库导入 → 再次导入，确认无副本、归属一致
-npx vite-node scripts/verify-rescan.ts       # 强制重新扫描全部来源，确认已存在会话不产生副本
-npx vite-node scripts/verify-launch.ts       # 启动成功 / 非零退出码 / 程序不存在 / 工作目录不存在 的真实反馈
-```
-
-`verify-roundtrip.ts` 会读取本机应用数据库（只读），导出为 JSON，再导入到一个**全新的空数据库**并二次导入，检查会话集合、项目归属与消息数是否一致、重复导入是否产生副本。
-
-### 10.2 重新生成示例截图
-
-仓库里的截图来自**虚构演示数据**，生成脚本在 `scripts/make-demo-data.ts`：
+需要 Windows 10 / 11 x64、**Node.js ≥22.16（推荐 22.x 或 24.x）**、npm ≥10。Node 需要内置 SQLite 和 zstd；无需 Visual Studio 编译工具。
 
 ```powershell
-# 1) 生成演示数据（默认写到 C:\agent-vault-demo，可通过 VAULT_DEMO_ROOT 改）
-$env:VAULT_DEMO_ROOT = 'C:\agent-vault-demo'
-npm run make:demo
-
-# 2) 构建并用假环境变量启动，截图诊断会自动输出 5 张图
-npm run build
-$env:USERPROFILE = 'C:\agent-vault-demo'
-$env:APPDATA = 'C:\agent-vault-demo\AppData\Roaming'
-$env:LOCALAPPDATA = 'C:\agent-vault-demo\AppData\Local'
-$env:VAULT_SCREENSHOT = '.\docs\screenshots\launch.png'
-npx electron .
+npm ci
+npm run dev
 ```
 
-产出的文件：`launch.png`（启动）、`launch-conversations.png`（对话记录）、`launch-settings.png`（设置）、`launch-projects.png`（项目）、`launch-light.png`（浅色主题）。
+在 Electron 窗口中进入独立演示模式即可体验，无需修改环境变量。开发命令：
 
-> 截图诊断**只在显式设置 `VAULT_SCREENSHOT` 时启用**，正式版不会读取工作目录里的任何文件、也不会往任意路径写 PNG。
+```powershell
+npm run typecheck    # 主进程、渲染层、测试与 scripts 类型检查
+npm test             # 自动化测试
+npm run verify       # 类型检查 + 测试
+npm run build        # 构建 out/
+npm start            # 预览构建
+```
 
----
+源码安装和构建需要下载依赖；应用查看已导入记录不依赖网络。网络不稳定时可在当前 PowerShell 设置镜像后安装：
 
-## 11. 开源参考
+```powershell
+$env:npm_config_registry = 'https://registry.npmmirror.com'
+$env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+$env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-builder-binaries/'
+npm ci
+```
 
-本项目仅参考这些项目的**公开交互与设计思路**，未复制任何不明来源代码。
+## 构建与 GitHub 发布
 
-| 项目 | 链接 | 许可证 | 借鉴点 |
-| --- | --- | --- | --- |
-| Cherry Studio | https://github.com/CherryHQ/cherry-studio | **AGPL-3.0** | 会话建模为独立实体并带本地 DB schema（`src/main/data/db/schemas/topic.ts`：uuid 主键、名称 + 手动改名标记、排序键、`lastActivityAt` 活动时间戳）；主进程持有本地数据库、渲染进程只读交互的分工 |
-| Chatbox | https://github.com/Bin-Huang/chatbox | **GPL-3.0** | `docs/storage.md` 的**版本化迁移机制**（`configVersion` + 迁移函数表、同类型存储共享数据源不复制、多份旧存储取最新）——本项目的 `schema_migrations` + 顺序迁移借鉴了这一思路；桌面端「配置文件便于备份 / 会话数据放大容量」的分离策略 |
-| Jan | https://github.com/janhq/jan | **Apache-2.0** | `core/src/types/thread/threadEntity.ts` 的线程实体（id / title / created / updated / metadata）与「线程列表 + 收藏 + 最近」的信息组织方式；完全离线本地优先的定位 |
+```powershell
+npm run pack:dir      # 目录版
+npm run pack:nsis     # 安装包
+npm run pack:portable # 便携单文件
+npm run release       # 验证 + 构建 + NSIS/便携打包
+```
 
-许可证均为其仓库根目录 `LICENSE` 文件中声明的原始文本（已逐一读取核实）。**本项目自身未复制上述任何代码。**
+产物在 `release/`，不纳入 Git。打包只收集 `out/` 与应用包信息，不打包 AppData 数据库。
 
----
+CI 对 main 的 push / PR 执行检查与构建。Release workflow 在 `v*` tag 上运行完整 release 命令，再上传 exe；手动触发只生成 artifact。远程工作流是否成功，以 GitHub Actions 实际结果为准。
 
-## 12. 已知限制
+维护者确认代码、隐私与版本号后再创建 tag。当前对话中的本地修改不会自动提交、推送或发布。
 
-- Qoder CLI 与 Trae 桌面端**没有**可验证的自动记录同步（原因见能力矩阵），只能通过通用 JSON / Markdown 导入。
-- 会话正文搜索是 `LIKE '%关键词%'` 的子串匹配，不是分词或语义检索；内容多时建议配合 Agent / 项目筛选。
-- 标题对没有原生标题的来源（Codex / pi / MiniMax 桌面端）由首条用户消息派生，可能不是原始标题。
-- MiniMax 桌面端会话没有 cwd 字段，这些记录默认进入「未分组」，只能手动调整。
-- Markdown 导入导出**不携带消息级时间戳**，需要完整保真请用 JSON。
-- 打包产物未做代码签名（未配置证书），Windows SmartScreen 可能提示未知发布者。
-- `node:sqlite` 在 Electron 中仍会打印一条 ExperimentalWarning，不影响功能。
-- 对话详情的 Markdown 渲染只识别 ``` 代码块，不做完整 Markdown 解析（列表、表格等按原文展示）。
-- 界面外观按 1440×900 设计；窗口更窄时卡片列数自适应减少，但对话记录页三栏在 1100px 以下会显得拥挤（最小窗口尺寸为 1100×680）。
-- 对话详情注入内容折叠只覆盖 `<system-reminder>` / `<agent-context>` / `<system_info>` 三种标签；其它 Agent 自定义的包装标签会按原文展示。
-- 「CLI 优先用 Windows Terminal 拉起」需要本机 `wt.exe` 能被探测到。`wt.exe` 是 WindowsApps 下的 App Execution Alias，部分机器上 `fs.existsSync` 看不到它，此时会自动退回普通启动（功能不受影响，只是没有独立终端窗口）。
+## 常见问题与限制
 
----
+- 找不到启动程序：在设置中选择实际程序；PATH 命令可带扩展名；修改 PATH 后重启本应用。
+- MiniMax CLI 只打开 Node：检查 pi CLI 是否安装，并把 CLI 脚本路径作为参数，不能只配置 Node 程序。
+- 扫描不到记录：先启用来源范围，再选择真实目录或 SQLite 文件，检查格式是否受支持。没有安装的 Agent 不必启用。
+- 自动扫描无变化：检查是否暂停；等待轮询，或手动重新扫描已选来源。
+- Codex 当前只解析 `.jsonl.zst`；不支持的其它格式不会宣称已同步。
+- MiniMax 桌面端没有可用 cwd 的会话默认未分组，可手动调整。
+- 搜索为本地 LIKE 子串匹配，无分词与语义检索。大量会话建议搭配筛选。
+- 来源中的会话删除后，重新解析该来源时对应本地记录可能被清理；本工具不是源端删除后的永久档案，应另做备份。整个来源文件消失不会保证同步删除。
+- 标题可能取首条用户消息；正文只支持代码块等有限展示，不是完整 Markdown 渲染。
+- 数据未加密，不适合作为共享电脑上的私密聊天保险箱。
+- Windows Terminal 与第三方 Agent 的实际行为取决于安装环境；测试通过不代表覆盖所有版本和设备。
 
-## 13. 贡献指南
+## 测试、贡献与许可证
 
-欢迎提 issue 和 PR。为了让改动容易评审：
+测试覆盖适配器解析、增量扫描、归组、去重、导入导出、启动、配置保留、扫描范围、共用目录监听及完整备份恢复。真实数据验证脚本与截图复现见 [开发与验收](docs/DEVELOPMENT.md)。
 
-1. **先开 issue 描述问题**，尤其是涉及 Agent 记录格式的改动（请附上脱敏后的样本片段）。
-2. 分支命名：`feat/<主题>`、`fix/<主题>`、`docs/<主题>`。
-3. 提交前跑通 `npm run verify`（类型检查 + 50 个用例）。
-4. 一次 PR 只做一件事；新增能力请同时补测试与 README 说明。
-5. **不要提交真实数据**：任何截图、fixture、日志都必须脱敏（仓库的 `.gitignore` 已屏蔽本地截图产物，但请自行确认）。
+欢迎 issue / PR。请提供脱敏样本和复现步骤，提交前运行 `npm run verify`。真实会话、日志、导出、数据库及密钥不能作为公开样本。新增适配器需附格式样本测试，并注明验证环境。
 
-新增一个 Agent 适配器需要做的事：
+技术栈：Electron 38、React 19、TypeScript、Node 内置 SQLite；主进程管理本地数据，渲染层经受限 preload IPC 交互，启用 sandbox/contextIsolation，关闭 nodeIntegration。
 
-- 在 `src/main/adapters/` 实现适配器（启动配置、来源发现、解析归一化、去重、增量扫描）；
-- 在 `src/main/adapters/registry.ts` 注册，并在 `src/main/agents/capabilities.ts` 走通用能力探测；
-- 在 `tests/adapters.test.ts` 补解析用例，用**构造样本**做 fixture；
-- 更新本 README 的能力矩阵，并注明是「实测」还是「未验证」。
-
----
-
-## 14. 许可证
+历史设计见 [设计方案](docs/设计方案.md)，当前行为以代码和本 README 为准。交互与本地存储思路参考 Cherry Studio、Chatbox、Jan，未将它们的实现代码引入本项目。
 
 [MIT](LICENSE) © 2026 woluoleiqingxvlingsui

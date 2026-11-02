@@ -150,6 +150,8 @@ describe('回归：导入恢复手动项目归属', () => {
       const bundle = buildExportBundle(source.repo)
       expect(bundle.sessions[0].manualProjectId).toBe(project.id)
 
+      // 与界面导入入口一致：先登记导出包中的项目，再导入会话。
+      for (const p of bundle.projects) target.repo.saveProject(p)
       const result = importSessions(target.repo, bundle.sessions)
       expect(result.imported).toBe(1)
       const restored = target.repo.listSessions({}).items[0]

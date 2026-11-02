@@ -1,13 +1,18 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
-import { promises as fs } from 'node:fs'
+import { promises as fs, existsSync } from 'node:fs'
 import path from 'node:path'
 import type { Repo } from './db/repo'
 import type { Scanner } from './scan/scanner'
 import type { AgentAdapter } from './adapters/types'
 import type { AgentDescriptor, Launcher, Project, SessionQuery } from '../shared/types'
-import { evaluateAgent } from './agents/capabilities'
+import { evaluateAgent, evaluateLaunch } from './agents/capabilities'
 import { AGENT_SOURCE_KEY } from './agents/keys'
 import { launch } from './launch/launcher'
+import type { Db } from './db/database'
+import type { SourceWatcher } from './scan/watcher'
+import type { ImportResponse, ScanPreferences } from '../shared/types'
+import { getScanPreferences, saveScanPreferences } from './agents/preferences'
+import { snapshot, stageRestore } from './io/backup'
 import { buildExportBundle, exportToJson, exportToMarkdown } from './io/exporter'
 import {
   importMarkdownSessions,
@@ -22,6 +27,10 @@ export interface AppContext {
   adapters: AgentAdapter[]
   dataDir: string
   dbFile: string
+  db: Db
+  watcher: SourceWatcher
+  notify: () => Promise<void>
+  demoMode: boolean
 }
 
 const SOURCE_KEY = AGENT_SOURCE_KEY
@@ -44,8 +53,31 @@ export function registerIpc(ctx: AppContext): void {
     dataDir: ctx.dataDir,
     dbFile: ctx.dbFile,
     version: app.getVersion(),
-    electron: process.versions.electron
+    electron: process.versions.electron,
+    demo: ctx.demoMode
   }))
+
+  handle('app:demo', async () => {
+    ctx.watcher.stop()
+    await scanner.suspend()
+    const args = process.argv.slice(1).filter((a) => a !== '--demo')
+    if (!ctx.demoMode) args.push('--demo')
+    app.relaunch({ args })
+    app.quit()
+    return true
+  })
+
+  handle('scan:preferences', () => getScanPreferences(repo))
+  handle('scan:configure', async (value: ScanPreferences) => {
+    if (!Array.isArray(value?.agentIds)) throw new Error('请选择扫描来源')
+    const agentIds = adapters.filter((a) => a.recordSupport !== 'none' && value.agentIds.includes(a.id)).map((a) => a.id)
+    const prefs = { initialized: true, paused: ctx.demoMode || value.paused === true, agentIds: ctx.demoMode ? [] : agentIds }
+    saveScanPreferences(repo, prefs)
+    ctx.watcher.refresh()
+    await ctx.notify()
+    if (!prefs.paused) void scanner.scanSelected().then(ctx.notify).catch(() => undefined)
+    return prefs
+  })
 
   handle('app:openPath', async (target: string) => {
     if (!target) return false
@@ -95,6 +127,7 @@ export function registerIpc(ctx: AppContext): void {
   })
 
   handle('launchers:launch', async (id: string) => {
+    if (ctx.demoMode) return { ok: false, message: '演示模式不启动外部程序，请返回个人数据后使用' }
     const item = repo.getLauncher(id)
     if (!item) return { ok: false, message: '启动项不存在' }
     if (!item.enabled) return { ok: false, message: `启动项「${item.name}」已禁用` }
@@ -157,21 +190,33 @@ export function registerIpc(ctx: AppContext): void {
     const descriptors: AgentDescriptor[] = []
     for (const adapter of adapters) {
       const configured = repo.getSetting(SOURCE_KEY(adapter.id)) ?? ''
-      const evaluation = await evaluateAgent(adapter, configured)
+      const saved = repo.getLauncher(`agent-${adapter.id}`)
+      const effective = saved ? { ...adapter, launch: { ...adapter.launch, command: saved.command,
+        args: saved.args, cwd: saved.cwd, protocol: saved.protocol } } : adapter
+      const prefs = getScanPreferences(repo)
+      const canProbe = !ctx.demoMode && prefs.initialized && !prefs.paused && prefs.agentIds.includes(adapter.id)
+      const evaluation = canProbe ? await evaluateAgent(effective, configured) : {
+        discoveredSources: [adapter.defaultSourcePath], capabilities: {
+          launch: evaluateLaunch(effective).status, records: 'needs_config' as const,
+          reasons: [ctx.demoMode ? '演示模式：不读取真实 Agent 来源' : prefs.paused && prefs.initialized ? '记录：自动扫描已暂停' : '记录：请先在扫描范围中启用此来源']
+        }
+      }
       const state = repo.getScanState(adapter.id)
       descriptors.push({
         id: adapter.id,
         name: adapter.name,
         vendor: adapter.vendor,
         surface: adapter.surface,
-        launchProtocol: adapter.launch.protocol,
-        launchCommand: adapter.launch.command,
-        launchArgs: adapter.launch.args,
-        launchCwd: adapter.launch.cwd,
+        launchProtocol: effective.launch.protocol,
+        launchCommand: effective.launch.command,
+        launchArgs: effective.launch.args,
+        launchCwd: effective.launch.cwd,
         launchNote: adapter.launch.note,
         discoveredSources: evaluation.discoveredSources,
         configuredSource: configured,
         sourceHint: adapter.sourceHint,
+        sourceAvailable: existsSync(configured || adapter.defaultSourcePath),
+        recordSupport: adapter.recordSupport,
         capabilities: evaluation.capabilities,
         lastScanAt: state.lastScanAt,
         lastError: state.lastError,
@@ -184,20 +229,26 @@ export function registerIpc(ctx: AppContext): void {
   handle('agents:list', () => buildDescriptors())
 
   handle('agents:setSource', async ({ agentId, source }: { agentId: string; source: string }) => {
+    if (!adapters.some((a) => a.id === agentId)) throw new Error('未知的 Agent')
     repo.setSetting(SOURCE_KEY(agentId), (source ?? '').trim())
+    ctx.watcher.refresh()
     return buildDescriptors()
   })
 
   handle('agents:rescan', async (agentId: string) => {
+    if (ctx.demoMode) throw new Error('演示模式不扫描真实来源')
+    if (!getScanPreferences(repo).initialized || !getScanPreferences(repo).agentIds.includes(agentId)) throw new Error('请先在扫描范围中启用此来源')
     const adapter = adapters.find((a) => a.id === agentId)
     if (!adapter) throw new Error(`未知的 Agent：${agentId}`)
     const configured = repo.getSetting(SOURCE_KEY(agentId)) ?? ''
     const result = await scanner.scanAgent(agentId, { sourceRoot: configured, force: true })
+    await ctx.notify()
     return { result, descriptors: await buildDescriptors() }
   })
 
   handle('agents:scanAll', async () => {
-    const results = await scanner.scanAll()
+    const results = await scanner.scanSelected()
+    await ctx.notify()
     return { results, descriptors: await buildDescriptors() }
   })
 
@@ -255,7 +306,7 @@ export function registerIpc(ctx: AppContext): void {
 
   handle(
     'io:import',
-    async ({ filePath, format }: { filePath: string; format: 'json' | 'markdown' }) => {
+    async ({ filePath, format }: { filePath: string; format: 'json' | 'markdown' }): Promise<ImportResponse> => {
       const text = await fs.readFile(filePath, 'utf8')
       if (format === 'json') {
         const { bundle, error } = parseJsonImport(text)
@@ -266,11 +317,13 @@ export function registerIpc(ctx: AppContext): void {
           if (!exists) repo.saveProject({ id: p.id, name: p.name, rootPath: p.rootPath })
         }
         const result = importSessions(repo, bundle!.sessions)
+        await ctx.notify()
         return { ok: true, result }
       }
       const parsed = parseMarkdownImport(text)
       if (!parsed.length) return { ok: false, error: 'Markdown 中未解析出任何会话' }
       const result = importMarkdownSessions(repo, parsed)
+      await ctx.notify()
       return { ok: true, result }
     }
   )
@@ -282,8 +335,35 @@ export function registerIpc(ctx: AppContext): void {
       ? await dialog.showSaveDialog(win, { defaultPath: defaultName, filters: [{ name: 'SQLite', extensions: ['db'] }] })
       : await dialog.showSaveDialog({ defaultPath: defaultName, filters: [{ name: 'SQLite', extensions: ['db'] }] })
     if (result.canceled || !result.filePath) return { canceled: true }
-    await fs.copyFile(ctx.dbFile, result.filePath)
+    if (path.resolve(result.filePath).toLowerCase() === path.resolve(ctx.dbFile).toLowerCase()) {
+      throw new Error('不能将备份覆盖到正在使用的数据库')
+    }
+    snapshot(ctx.db, result.filePath)
     return { canceled: false, filePath: result.filePath }
+  })
+
+  handle('io:restore', async () => {
+    const picked = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: '完整数据库备份', extensions: ['db'] }] })
+    if (picked.canceled) return { canceled: true }
+    const confirmation = await dialog.showMessageBox({ type: 'warning', buttons: ['取消', '备份当前数据并恢复'],
+      defaultId: 0, cancelId: 0, message: '恢复将替换当前应用的启动项、项目、设置与全部会话，并重启应用。',
+      detail: '不会修改外部 Agent 的原始记录。当前数据库将自动保存到数据目录的 backups 文件夹。' })
+    if (confirmation.response !== 1) return { canceled: true }
+    ctx.watcher.stop()
+    await scanner.suspend()
+    try {
+      const backupDir = path.join(ctx.dataDir, 'backups')
+      await fs.mkdir(backupDir, { recursive: true })
+      snapshot(ctx.db, path.join(backupDir, `before-restore-${Date.now()}.db`))
+      stageRestore(picked.filePaths[0], ctx.dbFile)
+      app.relaunch()
+      app.quit()
+      return { canceled: false }
+    } catch (err) {
+      scanner.resume()
+      ctx.watcher.start()
+      throw err
+    }
   })
 
   handle('io:revealDataDir', async () => {

@@ -22,11 +22,8 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      - name: 类型检查 + 单元测试
-        run: npm run verify
-
-      - name: 构建 Windows 产物
-        run: npx electron-builder --win nsis portable
+      - name: 验证、构建并打包 Windows 产物
+        run: npm run release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

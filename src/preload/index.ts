@@ -1,9 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AgentDescriptor,
+  ImportResponse,
+  ScanPreferences,
   AppInfo,
   ProjectStats,
-  ImportResult,
   LaunchResult,
   Launcher,
   Project,
@@ -13,7 +14,12 @@ import type {
 } from '../shared/types'
 
 const api = {
+  scan: {
+    preferences: (): Promise<ScanPreferences> => ipcRenderer.invoke('scan:preferences'),
+    configure: (value: ScanPreferences): Promise<ScanPreferences> => ipcRenderer.invoke('scan:configure', value)
+  },
   app: {
+    demo: (): Promise<boolean> => ipcRenderer.invoke('app:demo'),
     info: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),
     openPath: (target: string): Promise<boolean> => ipcRenderer.invoke('app:openPath', target),
     revealDataDir: (): Promise<string> => ipcRenderer.invoke('io:revealDataDir'),
@@ -61,9 +67,10 @@ const api = {
       ipcRenderer.invoke('sessions:counts')
   },
   io: {
+    restore: (): Promise<{ canceled: boolean }> => ipcRenderer.invoke('io:restore'),
     export: (format: 'json' | 'markdown', agentId?: string | null): Promise<any> =>
       ipcRenderer.invoke('io:export', { format, agentId }),
-    import: (filePath: string, format: 'json' | 'markdown'): Promise<ImportResult & { ok: boolean; error?: string }> =>
+    import: (filePath: string, format: 'json' | 'markdown'): Promise<ImportResponse> =>
       ipcRenderer.invoke('io:import', { filePath, format }),
     backup: (): Promise<{ canceled: boolean; filePath?: string }> => ipcRenderer.invoke('io:backup')
   },

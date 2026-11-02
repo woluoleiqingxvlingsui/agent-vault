@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, dialog } from 'electron'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { Db } from './db/database'
@@ -8,33 +8,19 @@ import { buildAdapters } from './adapters/registry'
 import { Scanner } from './scan/scanner'
 import { SourceWatcher } from './scan/watcher'
 import { defaultDbFile, registerIpc } from './ipc'
+import { seedAgentLaunchers } from './agents/preferences'
+import { applyPendingRestore } from './io/backup'
+import { prepareDemo } from './demo'
+
+const demoMode = process.argv.includes('--demo')
+if (demoMode) app.setPath('userData', path.join(app.getPath('temp'), 'agent-vault-demo-app'))
+if (!app.requestSingleInstanceLock()) app.exit(0)
+app.on('second-instance', () => { mainWindow?.show(); mainWindow?.focus() })
 
 let db: Db | null = null
 let watcher: SourceWatcher | null = null
 let mainWindow: BrowserWindow | null = null
-
-function seedAgentLaunchers(repo: Repo, adapters: ReturnType<typeof buildAdapters>): void {
-  for (const adapter of adapters) {
-    const id = `agent-${adapter.id}`
-    const existing = repo.getLauncher(id)
-    if (!existing) {
-      repo.saveLauncher({
-        id,
-        name: adapter.name,
-        kind: adapter.surface === 'cli' ? 'cli' : 'app',
-        command: adapter.launch.command,
-        protocol: adapter.launch.protocol,
-        args: adapter.launch.args,
-        cwd: adapter.launch.cwd,
-        enabled: true,
-        icon: adapter.vendor
-      })
-    } else if (existing.command !== adapter.launch.command) {
-      // 探测到的路径变化时同步启动命令（保留用户的其它自定义）
-      repo.saveLauncher({ ...existing, command: adapter.launch.command })
-    }
-  }
-}
+let shutdownScanner: (() => Promise<void>) | null = null
 
 async function notifyDataChanged(): Promise<void> {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -110,29 +96,36 @@ app.whenReady().then(async () => {
   await fs.mkdir(dataDir, { recursive: true })
   const dbFile = defaultDbFile(dataDir)
 
+  if (demoMode) await prepareDemo(dataDir)
+  applyPendingRestore(dbFile)
   db = new Db(dbFile)
   const applied = runMigrations(db)
   if (applied.length) console.log(`[db] 已应用迁移：${applied.join(', ')}`)
 
   const repo = new Repo(db)
-  const adapters = buildAdapters()
+  const adapters = buildAdapters(demoMode ? {
+    home: 'C:\\agent-vault-demo', appdata: 'C:\\agent-vault-demo\\AppData\\Roaming',
+    local: 'C:\\agent-vault-demo\\AppData\\Local', npmGlobal: 'C:\\agent-vault-demo\\npm'
+  } : undefined)
   seedAgentLaunchers(repo, adapters)
 
   const scanner = new Scanner(repo, adapters)
-  registerIpc({ repo, scanner, adapters, dataDir, dbFile })
+  shutdownScanner = () => scanner.suspend()
 
   watcher = new SourceWatcher(scanner, adapters, {
     intervalMs: 60_000,
     debounceMs: 1500,
     onScan: notifyDataChanged
   })
+  registerIpc({ repo, scanner, adapters, dataDir, dbFile, db, watcher,
+    notify: notifyDataChanged, demoMode })
   watcher.start()
 
   await createWindow()
 
   // 启动后异步做一次全量扫描，不阻塞窗口显示
   void scanner
-    .scanAll()
+    .scanSelected()
     .then((results) => {
       const imported = results.reduce((sum, r) => sum + r.imported, 0)
       console.log(`[scan] 首次扫描完成：新增 ${imported} 条会话`)
@@ -142,7 +135,7 @@ app.whenReady().then(async () => {
       console.log(`[scan] 首次扫描失败：${(err as Error).message}`)
     })
 
-  // 诊断用：设置 VAULT_SCREENSHOT=<文件路径>（或在工作目录放置 screenshot-request.txt）时保存各页面截图
+  // 诊断用：设置 VAULT_SCREENSHOT=<文件路径>时保存各页面截图
   const screenshotTarget = await resolveScreenshotTarget()
   console.log(
     `[diag] cwd=${process.cwd()} env=${process.env.VAULT_SCREENSHOT ?? '<none>'} file=${
@@ -234,6 +227,9 @@ app.whenReady().then(async () => {
       await clickSelector('.theme-toggle')
     }
   }
+}).catch((err) => {
+  dialog.showErrorBox('Agent Vault 启动失败', (err as Error).message + '\n当前数据与恢复前备份保留在本地数据目录。')
+  app.quit()
 })
 
 app.on('window-all-closed', () => {
@@ -244,7 +240,12 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow()
 })
 
-app.on('will-quit', () => {
-  watcher?.stop()
-  db?.close()
+let quitting = false
+app.on('before-quit', (event) => {
+  if (quitting || !watcher) return
+  event.preventDefault()
+  quitting = true
+  watcher.stop()
+  // 等待读取中的来源解析结束，避免关闭数据库后仍有后台写入。
+  void shutdownScanner?.().finally(() => { db?.close(); app.quit() })
 })

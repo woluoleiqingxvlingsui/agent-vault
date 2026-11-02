@@ -70,6 +70,8 @@ export interface AgentDescriptor {
   configuredSource: string
   /** 来源路径说明（告诉用户如何配置） */
   sourceHint: string
+  sourceAvailable: boolean
+  recordSupport: 'file' | 'sqlite' | 'none'
   capabilities: AgentCapabilities
   lastScanAt: number | null
   lastError: string | null
@@ -153,7 +155,18 @@ export interface AppInfo {
   dbFile: string
   version: string
   electron: string
+  demo: boolean
 }
+
+export interface ScanPreferences {
+  initialized: boolean
+  paused: boolean
+  agentIds: string[]
+}
+
+export type ImportResponse =
+  | { ok: true; result: ImportResult }
+  | { ok: false; error: string }
 
 export interface ExportPayload {
   version: number

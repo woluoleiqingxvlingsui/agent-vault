@@ -67,16 +67,20 @@ async function main(): Promise<void> {
   const missing = [...originalKeys].filter((k) => !restoredKeys.has(k))
   console.log(`会话集合一致：${missing.length === 0 ? '是' : `否（缺失 ${missing.length} 条）`}`)
 
-  const origProjects = new Map(bundle.sessions.map((s) => [key(s), s.effectiveProjectId]))
+  const origProjects = new Map(bundle.sessions.map((s) => [key(s), (s.manualProjectId ?? s.autoProjectId)]))
   let mismatch = 0
   for (const s of restored.sessions) {
-    if (origProjects.get(key(s)) !== s.effectiveProjectId) mismatch += 1
+    if (origProjects.get(key(s)) !== (s.manualProjectId ?? s.autoProjectId)) mismatch += 1
   }
   console.log(`项目归属一致：${mismatch === 0 ? '是' : `否（${mismatch} 条不一致）`}`)
   console.log(`消息总数：原始 ${countMessages(bundle)} / 恢复后 ${countMessages(restored)}`)
 
+  const failed = missing.length > 0 || originalKeys.size !== restoredKeys.size || mismatch > 0 ||
+    countMessages(bundle) !== countMessages(restored) || first.failed > 0 || second.failed > 0 ||
+    second.imported > 0 || second.updated > 0
   fresh.close()
   await fs.rm(dir, { recursive: true, force: true })
+  if (failed) throw new Error('往返验证未通过')
 }
 
 function countMessages(bundle: ReturnType<typeof buildExportBundle>): number {
